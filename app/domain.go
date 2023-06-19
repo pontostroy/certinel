@@ -138,7 +138,7 @@ func ReverseHost(hostname string) (string, error) {
 	return "", ErrInvalidHostname
 }
 
-unc (d *Domain) GetCertificate() (*x509.Certificate, error) {
+func (d *Domain) GetCertificate() (*x509.Certificate, error) {
 	// check if d.Domain is an IP address
 	ip := net.ParseIP(d.Domain)
 	if ip != nil { // d.Domain is an IP address
@@ -156,8 +156,8 @@ func (d *Domain) GetCertificateDomain() (*x509.Certificate, error) {
 	}
 
 	conn := tls.Client(c, &tls.Config{
-		InsecureSkipVerify: true, // we check expiration only, not hostname or trusted CA
-		ServerName:         d.Domain,
+		InsecureSkipVerify: true,     // we check expiration and hostname afterwars, we're only interested in the presented certificate
+		ServerName:         d.Domain, // Set the ServerName to support checking vHost certs using SNI
 	})
 	if conn == nil {
 		return nil, err
@@ -175,12 +175,8 @@ func (d *Domain) GetCertificateDomain() (*x509.Certificate, error) {
 
 	state := conn.ConnectionState()
 	for _, cert := range state.PeerCertificates {
-		// check if the certificate is not yet valid or has expired
-		now := time.Now()
-		if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
-			if now.Before(cert.NotBefore) {
-				return nil, ErrNotYetValid
-			} 
+		if ok := cert.VerifyHostname(d.Domain); ok == nil {
+			return cert, nil
 		}
 	}
 
