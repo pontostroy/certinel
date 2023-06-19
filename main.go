@@ -5,7 +5,7 @@ import (
 	"flag"
 	"log"
 
-	"github.com/pontostroy/app"
+	"github.com/pontostroy/certinel/app"
 )
 
 //go:embed static/index.html
