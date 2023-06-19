@@ -1,4 +1,4 @@
-module github.com/drtoful/certinel
+module github.com/pontostroy/certinel
 
 go 1.16
 
