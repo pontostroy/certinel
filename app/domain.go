@@ -138,7 +138,17 @@ func ReverseHost(hostname string) (string, error) {
 	return "", ErrInvalidHostname
 }
 
-func (d *Domain) GetCertificate() (*x509.Certificate, error) {
+unc (d *Domain) GetCertificate() (*x509.Certificate, error) {
+	// check if d.Domain is an IP address
+	ip := net.ParseIP(d.Domain)
+	if ip != nil { // d.Domain is an IP address
+		return d.GetCertificateIP()
+	} else { // d.Domain is a domain name
+		return d.GetCertificateDomain()
+	}
+}
+
+func (d *Domain) GetCertificateDomain() (*x509.Certificate, error) {
 	// dial the remote server with timeout
 	c, err := net.DialTimeout("tcp", d.Domain+":"+d.Port, time.Second*10)
 	if err != nil {
@@ -146,8 +156,8 @@ func (d *Domain) GetCertificate() (*x509.Certificate, error) {
 	}
 
 	conn := tls.Client(c, &tls.Config{
-		InsecureSkipVerify: true,     // we check expiration and hostname afterwars, we're only interested in the presented certificate
-		ServerName:         d.Domain, // Set the ServerName to support checking vHost certs using SNI
+		InsecureSkipVerify: true, // we check expiration only, not hostname or trusted CA
+		ServerName:         d.Domain,
 	})
 	if conn == nil {
 		return nil, err
@@ -165,12 +175,43 @@ func (d *Domain) GetCertificate() (*x509.Certificate, error) {
 
 	state := conn.ConnectionState()
 	for _, cert := range state.PeerCertificates {
-		if ok := cert.VerifyHostname(d.Domain); ok == nil {
-			return cert, nil
+		// check if the certificate is not yet valid or has expired
+		now := time.Now()
+		if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
+			if now.Before(cert.NotBefore) {
+				return nil, ErrNotYetValid
+			} 
 		}
 	}
 
 	return nil, ErrNoPeerCertificate
+}
+
+func (d *Domain) GetCertificateIP() (*x509.Certificate, error) {
+	// dial the remote server with timeout
+	c, err := net.DialTimeout("tcp", d.Domain+":"+d.Port, time.Second*10)
+	if err != nil {
+		return nil, err
+	}
+
+	conn := tls.Client(c, &tls.Config{
+		InsecureSkipVerify: true, // skip hostname and trusted CA verification
+		ServerName:         d.Domain,
+	})
+	if conn == nil {
+		return nil, err
+	}
+
+	if err := conn.Handshake(); err != nil {
+		return nil, ErrNoPeerCertificate // no certificate presented by peer
+	}
+
+	state := conn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return nil, ErrNoPeerCertificate // no certificate presented by peer
+	}
+
+	return state.PeerCertificates[0], nil // return the first certificate in the list
 }
 
 func (d *Domain) Check() error {
